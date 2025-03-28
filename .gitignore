@@ -1,0 +1,24 @@
+# Ignorar o script de update
+update.bat
+*.bat
+
+# Bytecode do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ambientes virtuais
+env/
+venv/
+.venv/
+
+# Arquivos de log
+*.log
+
+# Configurações locais do VSCode ou outros editores
+.vscode/
+.idea/
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
