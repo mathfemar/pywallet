@@ -8,6 +8,7 @@ import streamlit as st
 def plot_portfolio_distribution(portfolio_df):
     """
     Cria um gráfico de pizza da distribuição do portfólio por ativo.
+    Respeita a moeda original de cada ativo para calcular a distribuição.
     
     Args:
         portfolio_df: DataFrame com o portfólio
@@ -18,12 +19,48 @@ def plot_portfolio_distribution(portfolio_df):
     # Usar a distribuição por ativo (ticker)
     dist_df = portfolio_df.copy()
     
-    # Calcular valor atual total para cada ativo
-    if 'valor_atual' not in dist_df.columns:
-        dist_df['valor_atual'] = dist_df['preco_atual'] * dist_df['quantidade']
+    # Verificar se temos os valores apropriados para usar
+    if 'valor_atual_orig' in dist_df.columns:
+        # Usar valores na moeda original para cálculo de percentuais
+        values_column = 'valor_atual_orig'
+    elif 'valor_atual' in dist_df.columns:
+        # Fallback para coluna tradicional
+        values_column = 'valor_atual'
+    else:
+        # Calcular valor na hora se não existir
+        dist_df['valor_atual_orig'] = dist_df['preco_atual'] * dist_df['quantidade']
+        values_column = 'valor_atual_orig'
     
-    # Calcular percentual de cada ativo
-    dist_df['percentual'] = (dist_df['valor_atual'] / dist_df['valor_atual'].sum()) * 100
+    # Para mostrar valores originais no hover, vamos criar colunas formatadas
+    if 'moeda' in dist_df.columns:
+        dist_df['valor_formatado'] = dist_df.apply(
+            lambda row: f"R$ {row[values_column]:,.2f}" if row['moeda'] == 'BRL' 
+            else f"US$ {row[values_column]:,.2f}", 
+            axis=1
+        )
+    else:
+        dist_df['valor_formatado'] = dist_df[values_column].apply(lambda x: f"R$ {x:,.2f}")
+    
+    # Para o cálculo das proporções, precisamos de todos os valores em uma moeda
+    # Se temos moedas diferentes, vamos criar outro campo com todos convertidos para BRL
+    if 'moeda' in dist_df.columns and 'USD' in dist_df['moeda'].values:
+        # Buscar taxa de câmbio
+        from utils.stock_price import get_exchange_rate
+        usd_brl_rate = get_exchange_rate('USD', 'BRL')
+        
+        # Criar coluna com valores convertidos para usar no cálculo percentual
+        dist_df['valor_brl'] = dist_df.apply(
+            lambda row: row[values_column] * usd_brl_rate if row['moeda'] == 'USD' else row[values_column],
+            axis=1
+        )
+        
+        # Calcular percentual baseado nos valores em BRL
+        total_value_brl = dist_df['valor_brl'].sum()
+        dist_df['percentual'] = (dist_df['valor_brl'] / total_value_brl) * 100
+    else:
+        # Se tudo está na mesma moeda, é mais simples
+        total_value = dist_df[values_column].sum()
+        dist_df['percentual'] = (dist_df[values_column] / total_value) * 100
     
     # Ordenar por valor para garantir cores consistentes (maiores valores com cores mais escuras)
     dist_df = dist_df.sort_values('percentual', ascending=False)
@@ -40,18 +77,17 @@ def plot_portfolio_distribution(portfolio_df):
     # Criar gráfico
     fig = px.pie(
         dist_df,
-        values='valor_atual',
+        values='percentual',  # Usando o percentual calculado corretamente
         names='ticker',
         title='Distribuição por Ativo',
-        labels={'valor_atual': 'Valor Atual', 'ticker': 'Ativo'},
-        hover_data=['percentual'],
-        custom_data=['percentual'],
+        hover_data=['valor_formatado', 'percentual'],  # Incluir valor formatado no hover
+        custom_data=['valor_formatado', 'percentual'],
         color_discrete_sequence=colors
     )
     
-    # Formato do hover
+    # Formato do hover customizado para mostrar moeda correta
     fig.update_traces(
-        hovertemplate='<b>%{label}</b><br>Valor: R$ %{value:.2f}<br>Percentual: %{customdata[0]:.2f}%'
+        hovertemplate='<b>%{label}</b><br>Valor: %{customdata[0]}<br>Percentual: %{customdata[1]:.2f}%'
     )
     
     # Configuração do layout
