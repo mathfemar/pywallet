@@ -31,16 +31,21 @@ def create_sidebar(username="Usuário", is_debug=False):
         # Filtros
         st.subheader("Filtros")
         
-        # Período de análise
+        # Data atual
+        today = datetime.date.today()
+        # Data exatamente um ano atrás
+        one_year_ago = today.replace(year=today.year - 1)
+        
+        # Período de análise - data inicial é exatamente um ano atrás
         st.date_input(
             "Data Inicial",
-            value=datetime.date.today() - datetime.timedelta(days=180),
+            value=one_year_ago,
             key="date_from"
         )
         
         st.date_input(
             "Data Final",
-            value=datetime.date.today(),
+            value=today,
             key="date_to"
         )
         

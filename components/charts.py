@@ -3,6 +3,7 @@ import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 import datetime
+import streamlit as st
 
 def plot_portfolio_distribution(portfolio_df):
     """
@@ -68,7 +69,7 @@ def plot_portfolio_distribution(portfolio_df):
 
 def plot_historical_performance(initial_value, current_value, n_months=6):
     """
-    Cria um gráfico de linha do desempenho histórico simulado.
+    Cria um gráfico de linha do desempenho histórico simulado, incluindo o CDI como comparação.
     
     Args:
         initial_value: Valor inicial do investimento
@@ -78,35 +79,60 @@ def plot_historical_performance(initial_value, current_value, n_months=6):
     Returns:
         figura do Plotly
     """
-    # Gerar datas para os últimos n meses
-    today = datetime.date.today()
-    dates = [today - datetime.timedelta(days=30*i) for i in range(n_months, -1, -1)]
-    dates = [d.strftime('%b/%Y') for d in dates]
+    # Obter datas do sidebar se disponíveis, ou criar um período padrão
+    start_date = st.session_state.get('date_from', 
+                  datetime.date.today() - datetime.timedelta(days=365))
+    end_date = st.session_state.get('date_to', datetime.date.today())
     
-    # Simular valores para o período
-    np.random.seed(42)  # Para resultados consistentes
+    # Calcular número de meses entre as datas
+    delta = (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month)
+    n_months = max(delta, 1)  # No mínimo 1 mês
     
-    # Cria uma progressão que começa no valor inicial e termina no valor atual
-    growth_factor = (current_value / initial_value) ** (1 / n_months)
+    # Gerar datas mensais entre data inicial e final
+    dates = []
+    current_date = datetime.date(start_date.year, start_date.month, 1)
     
-    values = [initial_value]
-    for i in range(1, n_months):
-        # Adiciona uma variação aleatória ao crescimento esperado
-        random_factor = 1 + np.random.uniform(-0.03, 0.03)
-        values.append(values[-1] * growth_factor * random_factor)
+    while current_date <= end_date:
+        dates.append(current_date)
+        # Avançar para o próximo mês
+        if current_date.month == 12:
+            current_date = datetime.date(current_date.year + 1, 1, 1)
+        else:
+            current_date = datetime.date(current_date.year, current_date.month + 1, 1)
     
-    # Garantir que o último valor é o current_value
-    values.append(current_value)
+    # Formatar datas para exibição
+    date_labels = [d.strftime('%b/%Y') for d in dates]
+    
+    # Calcular trajetória de crescimento progressivo entre valor inicial e final
+    if len(dates) <= 1:
+        # Se tiver apenas uma data, criar array com valor inicial e atual
+        values = [initial_value, current_value]
+        date_labels = [start_date.strftime('%b/%Y'), end_date.strftime('%b/%Y')]
+    else:
+        # Cálculo do fator de crescimento mensal
+        growth_factor = (current_value / initial_value) ** (1 / (len(dates) - 1)) if initial_value > 0 else 1
+        
+        # Gerar valores suavizados com componente aleatório controlado
+        np.random.seed(42)  # Para resultados consistentes
+        values = [initial_value]
+        
+        for i in range(1, len(dates)):
+            # Componente aleatório menor para trajetória mais suave
+            random_factor = 1 + np.random.uniform(-0.02, 0.02)
+            next_value = values[-1] * growth_factor * random_factor
+            values.append(next_value)
+        
+        # Ajustar o último valor para garantir que é exatamente o current_value
+        values[-1] = current_value
     
     # Criar DataFrame
     df = pd.DataFrame({
-        'data': dates,
+        'data': date_labels,
         'valor': values
     })
     
     # Calcular percentual de crescimento
-    initial = df['valor'].iloc[0]
-    df['percentual'] = ((df['valor'] / initial) - 1) * 100
+    df['percentual'] = ((df['valor'] / initial_value) - 1) * 100
     
     # Criar gráfico
     fig = go.Figure()
@@ -136,7 +162,28 @@ def plot_historical_performance(initial_value, current_value, n_months=6):
         )
     )
     
-    # Configuração do layout
+    # Adicionar linha do CDI
+    # Simular rendimento do CDI (aproximadamente 0.9% ao mês no período)
+    # Em uma aplicação real, você buscaria os valores reais do CDI
+    cdi_monthly_rate = 0.009  # 0.9% ao mês, valor aproximado
+    cdi_values = [initial_value]
+    
+    for i in range(1, len(dates)):
+        cdi_values.append(cdi_values[0] * (1 + cdi_monthly_rate) ** i)
+    
+    fig.add_trace(
+        go.Scatter(
+            x=df['data'],
+            y=cdi_values,
+            mode='lines',
+            name='CDI',
+            line=dict(color='#FFBB00', width=2, dash='dot'),
+            hovertemplate='<b>%{x}</b><br>Valor: R$ %{y:.2f}<br>Retorno: %{customdata:.2f}%',
+            customdata=[(val/initial_value - 1) * 100 for val in cdi_values]
+        )
+    )
+    
+    # Configuração do layout com legenda melhorada
     fig.update_layout(
         title='Evolução do Portfólio',
         xaxis_title='Mês/Ano',
@@ -145,9 +192,12 @@ def plot_historical_performance(initial_value, current_value, n_months=6):
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=-0.2,
-            xanchor="center",
-            x=0.5
+            y=1.02,  # Posicionar acima do gráfico
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(255, 255, 255, 0.1)",
+            bordercolor="rgba(255, 255, 255, 0.2)",
+            borderwidth=1
         )
     )
     
