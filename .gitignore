@@ -1,5 +1,4 @@
 # Ignorar o script de update
-update.bat
 *.bat
 
 # Bytecode do Python
@@ -14,6 +13,7 @@ venv/
 
 # Arquivos de log
 *.log
+*.xlsx
 
 # Configurações locais do VSCode ou outros editores
 .vscode/

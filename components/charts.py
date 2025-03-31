@@ -6,7 +6,7 @@ import datetime
 
 def plot_portfolio_distribution(portfolio_df):
     """
-    Cria um gráfico de pizza da distribuição do portfólio.
+    Cria um gráfico de pizza da distribuição do portfólio por ativo.
     
     Args:
         portfolio_df: DataFrame com o portfólio
@@ -14,52 +14,44 @@ def plot_portfolio_distribution(portfolio_df):
     Returns:
         figura do Plotly
     """
-    if 'setor' in portfolio_df.columns:
-        # Agrupando por setor
-        dist_df = portfolio_df.groupby('setor').agg({
-            'valor_atual': 'sum'
-        }).reset_index()
-        
-        # Calculando percentual
-        dist_df['percentual'] = (dist_df['valor_atual'] / dist_df['valor_atual'].sum()) * 100
-        
-        # Criar gráfico
-        fig = px.pie(
-            dist_df, 
-            values='valor_atual', 
-            names='setor',
-            title='Distribuição por Setor',
-            labels={'valor_atual': 'Valor Atual', 'setor': 'Setor'},
-            hover_data=['percentual'],
-            custom_data=['percentual'],
-            color_discrete_sequence=px.colors.sequential.Blues_r
-        )
-        
-        # Formato do hover
-        fig.update_traces(
-            hovertemplate='<b>%{label}</b><br>Valor: R$ %{value:.2f}<br>Percentual: %{customdata[0]:.2f}%'
-        )
-    else:
-        # Agrupando por ticker
-        dist_df = portfolio_df.copy()
-        dist_df['percentual'] = (dist_df['valor_atual'] / dist_df['valor_atual'].sum()) * 100
-        
-        # Criar gráfico
-        fig = px.pie(
-            dist_df,
-            values='valor_atual',
-            names='ticker',
-            title='Distribuição por Ativo',
-            labels={'valor_atual': 'Valor Atual', 'ticker': 'Ativo'},
-            hover_data=['percentual'],
-            custom_data=['percentual'],
-            color_discrete_sequence=px.colors.sequential.Blues_r
-        )
-        
-        # Formato do hover
-        fig.update_traces(
-            hovertemplate='<b>%{label}</b><br>Valor: R$ %{value:.2f}<br>Percentual: %{customdata[0]:.2f}%'
-        )
+    # Usar a distribuição por ativo (ticker)
+    dist_df = portfolio_df.copy()
+    
+    # Calcular valor atual total para cada ativo
+    if 'valor_atual' not in dist_df.columns:
+        dist_df['valor_atual'] = dist_df['preco_atual'] * dist_df['quantidade']
+    
+    # Calcular percentual de cada ativo
+    dist_df['percentual'] = (dist_df['valor_atual'] / dist_df['valor_atual'].sum()) * 100
+    
+    # Ordenar por valor para garantir cores consistentes (maiores valores com cores mais escuras)
+    dist_df = dist_df.sort_values('percentual', ascending=False)
+    
+    # Criar uma paleta de cores do azul marinho escuro ao branco
+    # O número de cores deve corresponder ao número de ativos
+    import plotly.colors as pc
+    num_colors = len(dist_df)
+    color_scale = pc.sequential.Blues[::-1]  # Inverte para começar do mais escuro
+    
+    # Criar um array de cores com gradação apropriada
+    colors = pc.sample_colorscale(color_scale, [i/(num_colors-1) for i in range(num_colors)]) if num_colors > 1 else [color_scale[0]]
+    
+    # Criar gráfico
+    fig = px.pie(
+        dist_df,
+        values='valor_atual',
+        names='ticker',
+        title='Distribuição por Ativo',
+        labels={'valor_atual': 'Valor Atual', 'ticker': 'Ativo'},
+        hover_data=['percentual'],
+        custom_data=['percentual'],
+        color_discrete_sequence=colors
+    )
+    
+    # Formato do hover
+    fig.update_traces(
+        hovertemplate='<b>%{label}</b><br>Valor: R$ %{value:.2f}<br>Percentual: %{customdata[0]:.2f}%'
+    )
     
     # Configuração do layout
     fig.update_layout(

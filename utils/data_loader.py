@@ -99,15 +99,62 @@ def process_imported_file(file_obj, file_type=None):
         
         # Ler arquivo conforme tipo
         if file_type in ['xlsx', 'xls']:
-            df = pd.read_excel(file_obj)
+            # Tentar ler o arquivo Excel com diferentes configurações
+            # Primeiro, tentar ler normalmente com pandas
+            try:
+                df = pd.read_excel(file_obj)
+                
+                # Verificar se a primeira linha poderia ser cabeçalho
+                first_row_is_header = True
+                if len(df.columns) >= 3:
+                    # Se as colunas não têm nomes significativos (0, 1, 2), a primeira linha pode não ser cabeçalho
+                    if all(str(col).isdigit() for col in df.columns):
+                        first_row_is_header = False
+                    # Ou se os nomes das colunas são muito diferentes do esperado
+                    column_names = [str(col).lower() for col in df.columns]
+                    expected_names = ['ticker', 'preco', 'quantidade', 'ativo', 'preço', 'qtd', 'qtde', 'código']
+                    if not any(expected in ' '.join(column_names) for expected in expected_names):
+                        first_row_is_header = False
+                
+                # Se a primeira linha não parece ser cabeçalho, ler novamente sem cabeçalho
+                if not first_row_is_header:
+                    df = pd.read_excel(file_obj, header=None)
+                    df.columns = ['ticker', 'preco_medio', 'quantidade']
+                
+            except Exception as e:
+                # Se falhar, tentar ler sem cabeçalho
+                file_obj.seek(0)
+                df = pd.read_excel(file_obj, header=None)
+                df.columns = ['ticker', 'preco_medio', 'quantidade']
+                
         else:  # csv
             # Tentar diferentes delimitadores
             for sep in [';', ',', '\t']:
                 try:
+                    # Tentar com cabeçalho primeiro
                     df = pd.read_csv(file_obj, sep=sep)
-                    # Se conseguir ler e tiver pelo menos 2 colunas, considera sucesso
-                    if len(df.columns) >= 2:
+                    
+                    # Verificar se tem pelo menos 3 colunas
+                    if len(df.columns) >= 3:
+                        # Verificar se a primeira linha poderia ser cabeçalho
+                        first_row_is_header = True
+                        # Se as colunas não têm nomes significativos (0, 1, 2), a primeira linha pode não ser cabeçalho
+                        if all(str(col).isdigit() for col in df.columns):
+                            first_row_is_header = False
+                        # Ou se os nomes das colunas são muito diferentes do esperado
+                        column_names = [str(col).lower() for col in df.columns]
+                        expected_names = ['ticker', 'preco', 'quantidade', 'ativo', 'preço', 'qtd', 'qtde', 'código']
+                        if not any(expected in ' '.join(column_names) for expected in expected_names):
+                            first_row_is_header = False
+                        
+                        # Se a primeira linha não parece ser cabeçalho, ler novamente sem cabeçalho
+                        if not first_row_is_header:
+                            file_obj.seek(0)
+                            df = pd.read_csv(file_obj, sep=sep, header=None)
+                            df.columns = ['ticker', 'preco_medio', 'quantidade']
+                            
                         break
+                    
                 except:
                     # Reinicia o ponteiro do arquivo para tentar outro delimitador
                     file_obj.seek(0)
@@ -117,11 +164,14 @@ def process_imported_file(file_obj, file_type=None):
                 return None
         
         # Se a importação tiver apenas 3 colunas sem cabeçalho, assume as colunas padrão
-        if len(df.columns) == 3 and df.columns[0] in ['0', 0]:
+        if len(df.columns) == 3 and all(str(col).isdigit() for col in df.columns):
+            df.columns = ['ticker', 'preco_medio', 'quantidade']
+        elif len(df.columns) == 3:
+            # Se tem 3 colunas mas com nomes personalizados, renomear para o padrão
             df.columns = ['ticker', 'preco_medio', 'quantidade']
         
-        # Se tiver mais colunas, tentar identificar pelo conteúdo
-        elif len(df.columns) >= 3:
+        # Se tiver mais ou menos colunas, tentar identificar pelo conteúdo
+        else:
             # Identificar coluna de ticker
             ticker_col = None
             price_col = None
@@ -131,7 +181,7 @@ def process_imported_file(file_obj, file_type=None):
             for col in df.columns:
                 sample_values = df[col].dropna().astype(str).str.upper().tolist()[:10]
                 # Se encontrar padrões de ticker em pelo menos 50% das amostras
-                if sample_values and sum(1 for v in sample_values if re.match(r'^[A-Z]{4}[0-9]{1,2}$', v.strip())) >= len(sample_values)/2:
+                if sample_values and sum(1 for v in sample_values if re.match(r'^[A-Z]{3,6}[0-9]{1,2}$', v.strip())) >= len(sample_values)/2:
                     ticker_col = col
                     break
             
@@ -153,7 +203,9 @@ def process_imported_file(file_obj, file_type=None):
                 
                 # Tentar converter para numérico
                 try:
-                    if df[col].dropna().apply(lambda x: float(str(x).replace(',', '.'))).apply(lambda x: x.is_integer()).all():
+                    # Verificar se a coluna contém valores que parecem ser quantidades (inteiros)
+                    numeric_values = pd.to_numeric(df[col].astype(str).str.replace(',', '.'), errors='coerce')
+                    if not numeric_values.isna().all() and (numeric_values % 1 == 0).all(skipna=True):
                         qty_col = col
                         break
                 except:

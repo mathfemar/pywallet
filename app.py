@@ -1,4 +1,6 @@
 import streamlit as st
+import datetime
+import time
 import pandas as pd
 import numpy as np
 import os
@@ -14,6 +16,7 @@ from utils.portfolio import calculate_portfolio_metrics
 import components.sidebar as sidebar_module
 import components.charts as charts_module
 import components.tables as tables_module
+from utils.stock_price import update_portfolio_prices, enrich_portfolio_data
 
 # Configuração da página
 st.set_page_config(
@@ -95,6 +98,58 @@ def import_portfolio():
             type=["xlsx", "csv"] if file_format == "Excel (.xlsx)" else ["csv"]
         )
         
+        # Mostrar tabela de exemplo diretamente na interface
+        st.subheader("Exemplo de formato esperado")
+        
+        # Criar um DataFrame de exemplo
+        exemplo_df = pd.DataFrame({
+            'ticker': ['PETR4', 'VALE3', 'ITUB4'],
+            'preco_medio': [22.50, 68.75, 32.10],
+            'quantidade': [100, 50, 75]
+        })
+        
+        # Formatar preços para exibição
+        exemplo_df_display = exemplo_df.copy()
+        exemplo_df_display['preco_medio'] = exemplo_df_display['preco_medio'].apply(format_currency_br)
+        
+        # Renomear colunas para exibição
+        exemplo_df_display.columns = ['Código do Ativo', 'Preço Médio', 'Quantidade']
+        
+        # Mostrar a tabela de exemplo
+        st.table(exemplo_df_display)
+        
+        # Criar arquivo Excel para download com formatação correta
+        import io
+        import openpyxl
+        from openpyxl.utils.dataframe import dataframe_to_rows
+        
+        # Criar um buffer de memória para o arquivo Excel
+        buffer = io.BytesIO()
+        
+        # Criar um novo workbook Excel e selecionar a planilha ativa
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Portfolio"
+        
+        # Adicionar cabeçalhos
+        ws.append(['ticker', 'preco_medio', 'quantidade'])
+        
+        # Adicionar dados de exemplo
+        for _, row in exemplo_df.iterrows():
+            ws.append([row['ticker'], row['preco_medio'], row['quantidade']])
+        
+        # Salvar o workbook no buffer
+        wb.save(buffer)
+        buffer.seek(0)
+        
+        # Botão para download do modelo
+        st.download_button(
+            label="⬇️ Baixar modelo Excel",
+            data=buffer,
+            file_name="modelo_portfolio.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        
         if uploaded_file is not None:
             try:
                 # Usar a função simplificada para processar o arquivo
@@ -112,16 +167,22 @@ def import_portfolio():
                     st.dataframe(df_display)
                     
                     if st.button("Confirmar Importação"):
+                        # Limpar cache para forçar atualização de preços
+                        if 'stock_prices_cache' in st.session_state:
+                            del st.session_state['stock_prices_cache']
+                        if 'stock_prices_cache_time' in st.session_state:
+                            del st.session_state['stock_prices_cache_time']
+                            
                         if not st.session_state.is_debug:
                             save_portfolio(st.session_state.username, df)
                             st.success("Portfólio importado com sucesso!")
                             st.session_state.portfolio_imported = True
-                            st.rerun()  # Alterado de experimental_rerun()
+                            st.rerun()
                         else:
                             st.session_state.debug_portfolio = df
                             st.success("Portfólio carregado em modo Debug!")
                             st.session_state.portfolio_imported = True
-                            st.rerun()  # Alterado de experimental_rerun()
+                            st.rerun()
                     
                     return df
                 
@@ -172,26 +233,31 @@ def import_portfolio():
             st.dataframe(temp_df_display)
             
             if st.button("Confirmar Portfólio"):
+                # Limpar cache para forçar atualização de preços
+                if 'stock_prices_cache' in st.session_state:
+                    del st.session_state['stock_prices_cache']
+                if 'stock_prices_cache_time' in st.session_state:
+                    del st.session_state['stock_prices_cache_time']
+                    
                 if not st.session_state.is_debug:
                     save_portfolio(st.session_state.username, temp_df)
                     st.success("Portfólio salvo com sucesso!")
                     st.session_state.portfolio_imported = True
                     # Limpar ativos temporários
                     st.session_state.temp_assets = []
-                    st.rerun()  # Alterado de experimental_rerun()
+                    st.rerun()
                 else:
                     st.session_state.debug_portfolio = temp_df
                     st.success("Portfólio carregado em modo Debug!")
                     st.session_state.portfolio_imported = True
                     # Limpar ativos temporários
                     st.session_state.temp_assets = []
-                    st.rerun()  # Alterado de experimental_rerun()
+                    st.rerun()
             
             return temp_df
     
     return None
 
-# Função principal que exibe o dashboard
 def show_dashboard():
     # Carregar portfólio
     if st.session_state.is_debug and 'debug_portfolio' in st.session_state:
@@ -199,23 +265,59 @@ def show_dashboard():
     else:
         portfolio_df = load_portfolio(st.session_state.username)
     
-    # Simulando preços atuais (em uma aplicação real, estes viriam de uma API)
-    # Aqui estamos adicionando uma variação aleatória ao preço médio para simular
-    np.random.seed(42)  # Para resultados consistentes
-    portfolio_df['preco_atual'] = portfolio_df['preco_medio'] * (1 + np.random.uniform(-0.15, 0.25, len(portfolio_df)))
-    
-    # Simulando setores (em uma aplicação real, estes viriam de uma API ou banco de dados)
-    sectors = ['Financeiro', 'Tecnologia', 'Energia', 'Consumo', 'Saúde', 'Industrial', 'Materiais']
-    portfolio_df['setor'] = np.random.choice(sectors, len(portfolio_df))
-    
-    # Calcular métricas do portfólio
-    metrics = calculate_portfolio_metrics(portfolio_df)
+    # Verificar se o portfólio está vazio
+    if portfolio_df.empty:
+        st.info("Seu portfólio está vazio. Utilize a opção 'Importar Novo Portfólio' para começar.")
+        return
     
     # Sidebar - Usamos a função diretamente do módulo
     sidebar_module.create_sidebar(st.session_state.username, st.session_state.is_debug)
     
+    # Criar chave para controlar a atualização automática
+    if 'dashboard_just_opened' not in st.session_state:
+        st.session_state.dashboard_just_opened = True
+        # Limpar cache para forçar atualização na primeira abertura
+        if 'stock_prices_cache' in st.session_state:
+            del st.session_state['stock_prices_cache']
+        if 'stock_prices_cache_time' in st.session_state:
+            del st.session_state['stock_prices_cache_time']
+    
+    # Botão para atualização manual dos preços
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        refresh_prices = st.button("🔄 Atualizar Preços", use_container_width=True)
+        if refresh_prices:
+            # Limpar cache para forçar nova consulta
+            if 'stock_prices_cache' in st.session_state:
+                del st.session_state['stock_prices_cache']
+            if 'stock_prices_cache_time' in st.session_state:
+                del st.session_state['stock_prices_cache_time']
+    
     # Main content
     st.title("Dashboard - Visão Geral do Portfólio")
+    
+    # Mostrar mensagem de carregamento
+    with st.spinner("Atualizando dados do mercado..."):
+        # Atualizar preços das ações sempre - sem depender do modo debug
+        portfolio_df = update_portfolio_prices(
+            portfolio_df, 
+            use_simulation=False,  # Nunca usar simulação, sempre buscar preços reais
+            cache_minutes=5  # Cache de 5 minutos para não sobrecarregar a API
+        )
+        
+        # Enriquecer dados com informações se não existirem
+        if 'nome_empresa' not in portfolio_df.columns:
+            portfolio_df = enrich_portfolio_data(portfolio_df)
+    
+    # Marcar que o dashboard não está mais sendo aberto pela primeira vez
+    st.session_state.dashboard_just_opened = False
+    
+    # Calcular métricas do portfólio
+    metrics = calculate_portfolio_metrics(portfolio_df)
+    
+    # Informação da última atualização
+    now = datetime.datetime.now()
+    st.caption(f"Última atualização: {now.strftime('%d/%m/%Y %H:%M:%S')}")
     
     # KPI Cards
     col1, col2, col3, col4 = st.columns(4)
@@ -252,6 +354,7 @@ def show_dashboard():
     col1, col2 = st.columns(2)
     
     with col1:
+        # Mostrar distribuição por ativo
         fig_distribution = charts_module.plot_portfolio_distribution(portfolio_df)
         st.plotly_chart(fig_distribution, use_container_width=True)
     
@@ -262,7 +365,7 @@ def show_dashboard():
     # Tabela de ativos
     st.subheader("Seus Ativos")
     tables_module.display_assets_table(portfolio_df)
-
+    
 # Fluxo principal da aplicação
 def main():
     # Verifique se o usuário está autenticado

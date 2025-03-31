@@ -25,10 +25,13 @@ def display_assets_table(portfolio_df):
     # Criar cópia para exibição
     display_df = portfolio_df.copy()
     
+    # Remover coluna de setor se existir
+    if 'setor' in display_df.columns:
+        display_df = display_df.drop(columns=['setor'])
+    
     # Renomear colunas para exibição
     column_mapping = {
         'ticker': 'Ativo',
-        'setor': 'Setor',
         'quantidade': 'Quantidade',
         'preco_medio': 'Preço Médio',
         'preco_atual': 'Preço Atual',
