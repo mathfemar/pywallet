@@ -1,5 +1,6 @@
 # Ignorar o script de update
-*.bat
+up*.bat
+cl*.bat
 
 # Bytecode do Python
 __pycache__/
